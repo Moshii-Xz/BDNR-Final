@@ -243,3 +243,43 @@ def test_orden_por_numero_inexistente_retorna_404(ordenes):
 def test_ruta_no_soportada_retorna_405(ordenes):
     status, _ = _llamar(ordenes, "DELETE", "/orders/{orderId}", {"orderId": "X"})
     assert status == 405
+
+
+# ── Promoción del día en el checkout ──────────────────────────────────
+
+def _fecha_bogota():
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone(timedelta(hours=-5))).date().isoformat()
+
+
+def test_checkout_aplica_promocion_del_dia_desde_dynamo(ordenes, tabla_ecommerce, carrito_listo):
+    fecha = _fecha_bogota()
+    tabla_ecommerce.put_item(Item={
+        "PK": f"PROMO#{fecha}", "SK": f"PROMO#{fecha}", "tipo": "PROMOTION", "fecha": fecha,
+        "descuento_pct": 50, "productos": [{"productId": "A"}, {"productId": "OTRO"}],
+    })
+    status, orden = _checkout(ordenes)
+    assert status == 201
+    linea_a = next(i for i in orden["items"] if i["productId"] == "A")
+    linea_b = next(i for i in orden["items"] if i["productId"] == "B")
+    # A: 100.50 → 50.25 c/u (x2) ; B sin promoción: 20
+    assert linea_a["precio_unitario"] == 50.25
+    assert linea_a["precio_lista"] == 100.5
+    assert linea_a["promocion"] == fecha
+    assert "promocion" not in linea_b
+    assert orden["subtotal"] == 120.5
+
+
+def test_checkout_lee_promocion_desde_redis(ordenes, redis_fake, carrito_listo):
+    fecha = _fecha_bogota()
+    redis_fake.set(f"promo#{fecha}", json.dumps({
+        "fecha": fecha, "descuento_pct": 10, "productos": [{"productId": "B"}],
+    }))
+    _, orden = _checkout(ordenes)
+    linea_b = next(i for i in orden["items"] if i["productId"] == "B")
+    assert linea_b["precio_unitario"] == 18
+
+
+def test_checkout_sin_promocion_usa_precio_de_lista(ordenes, carrito_listo):
+    _, orden = _checkout(ordenes)
+    assert all("promocion" not in i for i in orden["items"])

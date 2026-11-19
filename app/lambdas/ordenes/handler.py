@@ -30,7 +30,15 @@ from boto3.dynamodb.conditions import Attr, Key
 from botocore.exceptions import ClientError
 
 import claves
-from cache import cache_delete, cache_get, cache_key_orden, cache_key_producto, cache_set
+from cache import (
+    ZONA_BOGOTA,
+    cache_delete,
+    cache_get,
+    cache_key_orden,
+    cache_key_producto,
+    cache_key_promocion,
+    cache_set,
+)
 from cupones import evaluar_cupon, normalizar_codigo
 from db import TABLE_NAME, dynamodb, tabla
 from respuestas import (
@@ -110,6 +118,24 @@ def _leer_productos(product_ids: list[str]) -> dict[str, Item]:
     return encontrados
 
 
+def _promocion_vigente() -> tuple[str | None, Decimal, set[str]]:
+    """
+    Promoción del día (fecha de Bogotá): (fecha, descuento_pct, productIds).
+    Primero Redis —ya está ahí por el Write-Through de promociones— y si no,
+    DynamoDB. Sin promoción retorna (None, 0, vacío).
+    """
+    fecha = datetime.now(ZONA_BOGOTA).date().isoformat()
+    promo: Item | None = cache_get(cache_key_promocion(fecha))
+    if promo is None:
+        promo = tabla().get_item(
+            Key={"PK": claves.pk_promocion(fecha), "SK": claves.sk_promocion(fecha)}
+        ).get("Item")
+    if not promo:
+        return None, Decimal("0"), set()
+    ids = {p["productId"] for p in promo.get("productos", [])}
+    return fecha, Decimal(str(promo["descuento_pct"])), ids
+
+
 # ── #12 Checkout ──────────────────────────────────────────────────────
 
 def _preparar_orden(username: str, datos: dict[str, Any]) -> tuple[Item, list[Item], list[Item]]:
@@ -141,14 +167,28 @@ def _preparar_orden(username: str, datos: dict[str, Any]) -> tuple[Item, list[It
     order_id: str = f"ORD-{uuid.uuid4().hex[:10].upper()}"
     fecha: str = datetime.now(timezone.utc).isoformat()
 
+    # Los productos de la promoción del día se cobran con su descuento. Se
+    # calcula sobre el precio actual (no el copiado en la promoción) para
+    # que un cambio de precio posterior no deje un precio promocional viejo.
+    fecha_promo, pct_promo, ids_promo = _promocion_vigente()
+
     lineas: list[Item] = []
     subtotal = Decimal("0")
     for c in carrito:
         producto = productos[c["productId"]]
-        precio = Decimal(str(producto["precio"]))
+        precio_lista = Decimal(str(producto["precio"]))
+        en_promo = c["productId"] in ids_promo
+        precio = (
+            (precio_lista * (100 - pct_promo) / 100).quantize(CENTAVOS, ROUND_HALF_UP)
+            if en_promo else precio_lista
+        )
         cantidad = int(c["cantidad"])
         total_linea = (precio * cantidad).quantize(CENTAVOS, ROUND_HALF_UP)
         subtotal += total_linea
+        extra_promo: Item = (
+            {"precio_lista": precio_lista, "promocion": fecha_promo, "descuento_promo_pct": pct_promo}
+            if en_promo else {}
+        )
         lineas.append({
             "PK": claves.pk_usuario(username),
             "SK": claves.sk_orden_item(fecha, order_id, c["productId"]),
@@ -161,6 +201,7 @@ def _preparar_orden(username: str, datos: dict[str, Any]) -> tuple[Item, list[It
             "precio_unitario": precio,
             "cantidad": cantidad,
             "subtotal": total_linea,
+            **extra_promo,
         })
 
     # Cupón opcional: se vuelve a validar aquí, con el subtotal real
