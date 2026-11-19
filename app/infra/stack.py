@@ -8,8 +8,8 @@ Define la infraestructura serverless del proyecto final:
   - Lambda /health  (GET) health check de DynamoDB, Redis y Elasticsearch
   - Lambda productos (catálogo, reseñas, ranking) con código de lambdas/comun
   - Lambda carrito  (GET /cart, PUT/DELETE /cart/{productId})
-  - Lambda cupones  (GET /coupons/{codigo})
-  - Lambda usuarios (perfil, direcciones, wishlist)
+  - Lambda cupones  (validar y crear cupones)
+  - Lambda usuarios (registro, perfil, direcciones, wishlist)
   - Lambda ordenes  (checkout transaccional, historial, orden por número)
   - Lambda promociones (promoción del día, Write-Through hasta medianoche)
   - Lambda busqueda (GET /search, Elasticsearch)
@@ -292,9 +292,9 @@ class ProyectoFinalStack(Stack):
         )
         tabla.grant_read_write_data(lambda_carrito)
 
-        # ── 4.3 LAMBDA cupones (patrón #8) ────────────────────────────
-        # Solo lectura (GetItem); sin caché para no aplicar un cupón
-        # recién desactivado.
+        # ── 4.3 LAMBDA cupones (patrón #8 + alta de cupones) ──────────
+        # GetItem para validar y PutItem para crear; sin caché para no
+        # aplicar un cupón recién desactivado.
         lambda_cupones: _lambda.Function = _lambda.Function(
             self,
             "CuponesHandler",
@@ -305,10 +305,10 @@ class ProyectoFinalStack(Stack):
             environment=env_comun,
             timeout=cdk.Duration.seconds(10),
         )
-        tabla.grant_read_data(lambda_cupones)
+        tabla.grant_read_write_data(lambda_cupones)
 
-        # ── 4.4 LAMBDA usuarios (patrones #9-#11) ─────────────────────
-        # Solo lectura sobre la partición USER#<username>.
+        # ── 4.4 LAMBDA usuarios (patrones #9-#11 + sus escrituras) ────
+        # Lecturas y Put/Delete por llave exacta en la partición USER#<u>.
         lambda_usuarios: _lambda.Function = _lambda.Function(
             self,
             "UsuariosHandler",
@@ -319,7 +319,7 @@ class ProyectoFinalStack(Stack):
             environment=env_comun,
             timeout=cdk.Duration.seconds(10),
         )
-        tabla.grant_read_data(lambda_usuarios)
+        tabla.grant_read_write_data(lambda_usuarios)
 
         # ── 4.5 LAMBDA ordenes (patrones #12-#15) ─────────────────────
         # Checkout con TransactWriteItems (orden + líneas + vaciar carrito
@@ -433,19 +433,29 @@ class ProyectoFinalStack(Stack):
         recurso_cart_producto.add_method("DELETE", integ_carrito)
 
         # ── 5.3 Rutas de cupones → Lambda cupones ─────────────────────
-        (api.root.add_resource("coupons").add_resource("{codigo}")
-            .add_method("GET", apigw.LambdaIntegration(lambda_cupones)))
+        integ_cupones = apigw.LambdaIntegration(lambda_cupones)
+        recurso_coupons: apigw.Resource = api.root.add_resource("coupons")
+        recurso_coupons.add_method("POST", integ_cupones)                          # alta
+        recurso_coupons.add_resource("{codigo}").add_method("GET", integ_cupones)  # #8
 
         # ── 5.4 Rutas de usuarios → Lambda usuarios ───────────────────
         # recurso_user_id lo reutilizan después las rutas de órdenes
         # (/users/{username}/orders).
         integ_usuarios = apigw.LambdaIntegration(lambda_usuarios)
-        recurso_user_id: apigw.Resource = (
-            api.root.add_resource("users").add_resource("{username}")
-        )
+        recurso_users: apigw.Resource = api.root.add_resource("users")
+        recurso_users.add_method("POST", integ_usuarios)                  # registro
+        recurso_user_id: apigw.Resource = recurso_users.add_resource("{username}")
         recurso_user_id.add_method("GET", integ_usuarios)                 # #9
-        recurso_user_id.add_resource("addresses").add_method("GET", integ_usuarios)  # #10
-        recurso_user_id.add_resource("wishlist").add_method("GET", integ_usuarios)   # #11
+        recurso_addresses: apigw.Resource = recurso_user_id.add_resource("addresses")
+        recurso_addresses.add_method("GET", integ_usuarios)               # #10
+        recurso_address: apigw.Resource = recurso_addresses.add_resource("{nombre}")
+        recurso_address.add_method("PUT", integ_usuarios)
+        recurso_address.add_method("DELETE", integ_usuarios)
+        recurso_wishlist: apigw.Resource = recurso_user_id.add_resource("wishlist")
+        recurso_wishlist.add_method("GET", integ_usuarios)                # #11
+        recurso_wish: apigw.Resource = recurso_wishlist.add_resource("{productId}")
+        recurso_wish.add_method("PUT", integ_usuarios)                    # botón de corazón
+        recurso_wish.add_method("DELETE", integ_usuarios)
 
         # ── 5.5 Rutas de órdenes → Lambda ordenes ─────────────────────
         integ_ordenes = apigw.LambdaIntegration(lambda_ordenes)
