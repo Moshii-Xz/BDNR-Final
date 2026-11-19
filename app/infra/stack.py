@@ -7,6 +7,7 @@ Define la infraestructura serverless del proyecto final:
   - Lambda /items   (POST, GET, DELETE) con patrón Cache-Aside sobre Redis
   - Lambda /health  (GET) health check del servicio
   - Lambda productos (catálogo, reseñas, ranking) con código de lambdas/comun
+  - Lambda carrito  (GET /cart, PUT/DELETE /cart/{productId})
   - API Gateway     (RestApi) que enruta las peticiones
 """
 import os
@@ -272,6 +273,21 @@ class ProyectoFinalStack(Stack):
         )
         tabla.grant_read_write_data(lambda_productos)
 
+        # ── 4.2 LAMBDA carrito (patrón #7) ────────────────────────────
+        # Sin caché ni Elasticsearch: solo Query/PutItem/DeleteItem sobre
+        # la partición USER#<username>.
+        lambda_carrito: _lambda.Function = _lambda.Function(
+            self,
+            "CarritoHandler",
+            runtime=RUNTIME,
+            handler="handler.main",
+            code=_codigo_lambda("lambdas/carrito", con_comun=True),
+            layers=layers,
+            environment=env_comun,
+            timeout=cdk.Duration.seconds(10),
+        )
+        tabla.grant_read_write_data(lambda_carrito)
+
         # ── 5. API GATEWAY ────────────────────────────────────────────
         # LambdaRestApi crea automáticamente una integración proxy
         # entre API Gateway y la Lambda raíz.
@@ -331,6 +347,15 @@ class ProyectoFinalStack(Stack):
         # /brands/{marca}/products?categoria= → GET (#5, GSI2)
         (api.root.add_resource("brands").add_resource("{marca}")
             .add_resource("products").add_method("GET", integ_productos))
+
+        # ── 5.2 Rutas del carrito → Lambda carrito ────────────────────
+        # El usuario viaja en el header X-Username (no hay autenticación).
+        integ_carrito = apigw.LambdaIntegration(lambda_carrito)
+        recurso_cart: apigw.Resource = api.root.add_resource("cart")
+        recurso_cart.add_method("GET", integ_carrito)
+        recurso_cart_producto: apigw.Resource = recurso_cart.add_resource("{productId}")
+        recurso_cart_producto.add_method("PUT", integ_carrito)
+        recurso_cart_producto.add_method("DELETE", integ_carrito)
 
         # ── 6. OUTPUTS ────────────────────────────────────────────────
         CfnOutput(self, "ApiUrl",
