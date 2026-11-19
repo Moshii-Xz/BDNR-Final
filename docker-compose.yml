@@ -89,6 +89,23 @@ services:
       start_period: 30s
 
   # ─────────────────────────────────────────────────────────────────────
+  # CONTENEDOR 2c: Frontend de la demo (http://localhost:8080)
+  # nginx sirve frontend/ y hace de proxy al emulador (mismo origen, sin
+  # CORS). El frontend descubre solo el api-id vigente después de cada deploy.
+  # ─────────────────────────────────────────────────────────────────────
+  frontend:
+    image: nginx:1.27-alpine
+    container_name: bdnr-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      emulador:
+        condition: service_healthy
+
+  # ─────────────────────────────────────────────────────────────────────
   # CONTENEDOR 3: Entorno de desarrollo CDK
   # Aquí se trabaja: se escribe la infra y el código de las Lambdas.
   # ─────────────────────────────────────────────────────────────────────
