@@ -90,7 +90,7 @@ def tabla_ecommerce():
 
 # Módulos que las Lambdas importan "planos" y que chocan entre Lambdas
 # (cada una tiene su handler.py; items/ tiene su propio cache.py).
-_MODULOS_LAMBDA = ("handler", "cache", "claves", "db", "es", "respuestas")
+_MODULOS_LAMBDA = ("handler", "cache", "claves", "cupones", "db", "es", "respuestas")
 _DIR_LAMBDAS = os.path.join(os.path.dirname(__file__), "../lambdas")
 
 
