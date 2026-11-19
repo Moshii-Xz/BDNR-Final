@@ -9,6 +9,7 @@ Define la infraestructura serverless del proyecto final:
   - Lambda productos (catálogo, reseñas, ranking) con código de lambdas/comun
   - Lambda carrito  (GET /cart, PUT/DELETE /cart/{productId})
   - Lambda cupones  (GET /coupons/{codigo})
+  - Lambda usuarios (perfil, direcciones, wishlist)
   - API Gateway     (RestApi) que enruta las peticiones
 """
 import os
@@ -304,6 +305,20 @@ class ProyectoFinalStack(Stack):
         )
         tabla.grant_read_data(lambda_cupones)
 
+        # ── 4.4 LAMBDA usuarios (patrones #9-#11) ─────────────────────
+        # Solo lectura sobre la partición USER#<username>.
+        lambda_usuarios: _lambda.Function = _lambda.Function(
+            self,
+            "UsuariosHandler",
+            runtime=RUNTIME,
+            handler="handler.main",
+            code=_codigo_lambda("lambdas/usuarios", con_comun=True),
+            layers=layers,
+            environment=env_comun,
+            timeout=cdk.Duration.seconds(10),
+        )
+        tabla.grant_read_data(lambda_usuarios)
+
         # ── 5. API GATEWAY ────────────────────────────────────────────
         # LambdaRestApi crea automáticamente una integración proxy
         # entre API Gateway y la Lambda raíz.
@@ -376,6 +391,17 @@ class ProyectoFinalStack(Stack):
         # ── 5.3 Rutas de cupones → Lambda cupones ─────────────────────
         (api.root.add_resource("coupons").add_resource("{codigo}")
             .add_method("GET", apigw.LambdaIntegration(lambda_cupones)))
+
+        # ── 5.4 Rutas de usuarios → Lambda usuarios ───────────────────
+        # recurso_user_id lo reutilizan después las rutas de órdenes
+        # (/users/{username}/orders).
+        integ_usuarios = apigw.LambdaIntegration(lambda_usuarios)
+        recurso_user_id: apigw.Resource = (
+            api.root.add_resource("users").add_resource("{username}")
+        )
+        recurso_user_id.add_method("GET", integ_usuarios)                 # #9
+        recurso_user_id.add_resource("addresses").add_method("GET", integ_usuarios)  # #10
+        recurso_user_id.add_resource("wishlist").add_method("GET", integ_usuarios)   # #11
 
         # ── 6. OUTPUTS ────────────────────────────────────────────────
         CfnOutput(self, "ApiUrl",
