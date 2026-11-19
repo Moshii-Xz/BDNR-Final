@@ -1,5 +1,4 @@
 """
-ProyectoFinalStack
 ──────────────────
 Define la infraestructura serverless del proyecto final:
   - Tabla DynamoDB  (Single Table Design, PK+SK)
