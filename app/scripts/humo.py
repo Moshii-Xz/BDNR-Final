@@ -117,6 +117,9 @@ ok("GET /coupons/{codigo} válido (sin distinguir mayúsculas)", st == 200 and b
 ok("GET /coupons inexistente 404", pedir("GET", f"/coupons/NOPE{S}")[0] == 404)
 
 # ── Promoción del día ─────────────────────────────────────────────────
+# La prueba reemplaza la promoción de hoy: se guarda la vigente para
+# restaurarla al final y no dañar los datos de la demo (seed).
+st_previa, promo_previa = pedir("GET", "/promotions/today")
 st, b = pedir("POST", "/promotions", {"productos": [A, B], "descuento_pct": 50})
 ok("POST /promotions 201 y en caché (Write-Through)", st == 201 and b["_en_cache"], (st, b))
 st, b = pedir("GET", "/promotions/today")
@@ -170,6 +173,21 @@ time.sleep(1.5)
 st, b = pedir("GET", "/search?q=audifonos")
 ok("producto borrado ya no aparece en la búsqueda", st == 200 and B not in [
     r["productId"] for r in b["resultados"]], b)
+
+# ── Limpieza: deja la tienda como estaba ───────────────────────────────
+# Los productos de prueba crean categorías y marcas con sufijo que se verían
+# en el catálogo. (Usuario, cupón y orden de prueba no tienen ruta de borrado;
+# no aparecen en el catálogo ni en las cuentas del seed.)
+pedir("DELETE", f"/products/{A}")
+pedir("DELETE", f"/products/{C}")
+if st_previa == 200:
+    pedir("POST", "/promotions", {
+        "productos": [p["productId"] for p in promo_previa["productos"]],
+        "descuento_pct": promo_previa["descuento_pct"],
+    })
+st, b = pedir("GET", "/products")
+ok("limpieza: no quedan productos de esta corrida",
+   st == 200 and not {A, B, C} & {p["id"] for p in b["productos"]}, st)
 
 print(f"\n{'TODO OK' if not fallos else f'{len(fallos)} FALLOS: ' + ', '.join(fallos)}")
 sys.exit(1 if fallos else 0)
