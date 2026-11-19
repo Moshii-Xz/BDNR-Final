@@ -2,11 +2,11 @@
 Lambda /health
 ──────────────
 Health check del servicio.
-Verifica conectividad con DynamoDB y Redis
+Verifica conectividad con DynamoDB, Redis y Elasticsearch
 y retorna el estado de cada componente.
 
 Rutas soportadas:
-  GET    /health         → Estado de DynamoDB y Redis
+  GET    /health         → Estado de DynamoDB, Redis y Elasticsearch
                            (200 si todo está ok, 503 si alguno falla)
 """
 import json
@@ -16,6 +16,7 @@ from typing import Any, TypeAlias
 
 import boto3
 import redis
+from elasticsearch import Elasticsearch
 from boto3.resources.base import ServiceResource
 from botocore.exceptions import ClientError
 
@@ -57,15 +58,29 @@ def _check_redis() -> EstadoComponente:
         return {"estado": "error", "detalle": str(e)}
 
 
+def _check_elasticsearch() -> EstadoComponente:
+    host: str = os.environ.get("ES_HOST", "elasticsearch")
+    port: str = os.environ.get("ES_PORT", "9200")
+    try:
+        cliente = Elasticsearch(f"http://{host}:{port}", request_timeout=2)
+        salud = cliente.cluster.health()
+        # Un nodo único queda en "yellow" (no hay dónde poner réplicas): es normal
+        return {"estado": "ok", "host": host, "cluster": str(salud["status"])}
+    except Exception as e:   # el cliente lanza varios tipos según el fallo de red
+        return {"estado": "error", "detalle": str(e)}
+
+
 def main(event: dict[str, Any], context: Any) -> RespuestaApi:
     logger.info("Health check solicitado")
 
     db_status: EstadoComponente    = _check_dynamodb()
     redis_status: EstadoComponente = _check_redis()
+    es_status: EstadoComponente    = _check_elasticsearch()
 
     todo_ok: bool = (
         db_status["estado"] == "ok"
         and redis_status["estado"] == "ok"
+        and es_status["estado"] == "ok"
     )
 
     return {
@@ -75,5 +90,6 @@ def main(event: dict[str, Any], context: Any) -> RespuestaApi:
             "estado":   "ok" if todo_ok else "degradado",
             "dynamodb": db_status,
             "redis":    redis_status,
+            "elasticsearch": es_status,
         }),
     }
