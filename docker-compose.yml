@@ -61,6 +61,34 @@ services:
       retries: 5
 
   # ─────────────────────────────────────────────────────────────────────
+  # CONTENEDOR 2b: Elasticsearch (búsqueda libre de productos, patrón #6)
+  # Solo guarda un espejo de los campos de texto; la fuente de verdad sigue
+  # siendo DynamoDB. Misma versión que el cliente (elasticsearch==8.11.0).
+  # Las Lambdas lo alcanzan como "elasticsearch:9200" por la red compartida.
+  # ─────────────────────────────────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    # Nombre propio: "elasticsearch" choca con contenedores de otros proyectos.
+    # Las Lambdas lo resuelven igual como "elasticsearch" (nombre del servicio).
+    container_name: bdnr-elasticsearch
+    ports:
+      - "9200:9200"
+    environment:
+      discovery.type: single-node
+      # Laboratorio local: sin TLS ni usuario (el cliente usa http://)
+      xpack.security.enabled: "false"
+      # Limita la memoria de la JVM (por defecto toma la mitad del equipo)
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # ─────────────────────────────────────────────────────────────────────
   # CONTENEDOR 3: Entorno de desarrollo CDK
   # Aquí se trabaja: se escribe la infra y el código de las Lambdas.
   # ─────────────────────────────────────────────────────────────────────
@@ -97,6 +125,7 @@ services:
 
 volumes:
   redis_data:
+  es_data:
 
 networks:
   default:
