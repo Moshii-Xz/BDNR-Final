@@ -68,8 +68,8 @@ No saltar al paso siguiente sin que el anterior tenga sus tests pasando.
   `git diff` del rango de commits) y esperando confirmación antes de correr el push.
 - Nunca usar `git commit --amend`, `rebase`, `reset --hard` ni reescribir historia sin
   que yo lo pida explícitamente.
-- Si un comando de git queda trabado por un `.lock` (puede pasar por el bridge de Claude
-  Desktop), está bien borrarlo con `rm -f .git/*.lock` u otro `.lock` específico — eso no
+- Si un comando de git queda trabado por un `.lock` (puede pasar en Windows con
+  Docker Desktop), está bien borrarlo con `rm -f .git/*.lock` u otro `.lock` específico — eso no
   cuenta como una operación que necesite autorización, es solo destrabar git.
 - Antes de instalar una dependencia nueva (`requirements.txt` / layer), decirlo y para qué
   es, no agregarla "de paso" dentro de otro commit.
