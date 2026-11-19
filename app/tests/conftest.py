@@ -54,6 +54,76 @@ def tabla_dynamodb():
 
 
 @pytest.fixture
+def tabla_ecommerce():
+    """
+    Tabla en memoria con los mismos GSIs que AppTable en stack.py
+    (GSI1: categoría/orden, GSI2: marca), para las Lambdas del ecommerce.
+    """
+    with mock_aws():
+        cliente = boto3.resource("dynamodb", region_name="us-east-1")
+        atributos = ["PK", "SK", "GSI1PK", "GSI1SK", "GSI2PK", "GSI2SK"]
+        tabla = cliente.create_table(
+            TableName="test-tabla",
+            KeySchema=[
+                {"AttributeName": "PK", "KeyType": "HASH"},
+                {"AttributeName": "SK", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": a, "AttributeType": "S"} for a in atributos
+            ],
+            GlobalSecondaryIndexes=[
+                {
+                    "IndexName": indice,
+                    "KeySchema": [
+                        {"AttributeName": f"{indice}PK", "KeyType": "HASH"},
+                        {"AttributeName": f"{indice}SK", "KeyType": "RANGE"},
+                    ],
+                    "Projection": {"ProjectionType": "ALL"},
+                }
+                for indice in ("GSI1", "GSI2")
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        tabla.wait_until_exists()
+        yield tabla
+
+
+# Módulos que las Lambdas importan "planos" y que chocan entre Lambdas
+# (cada una tiene su handler.py; items/ tiene su propio cache.py).
+_MODULOS_LAMBDA = ("handler", "cache", "claves", "db", "es", "respuestas")
+_DIR_LAMBDAS = os.path.join(os.path.dirname(__file__), "../lambdas")
+
+
+@pytest.fixture
+def cargar_lambda():
+    """
+    Importa el handler de una Lambda del ecommerce tal como quedaría en su
+    asset: su carpeta + lambdas/comun/ al frente del sys.path. Al terminar
+    restaura sys.path y sys.modules para no contaminar a test_items.py.
+    """
+    import importlib
+
+    path_original = list(sys.path)
+    modulos_originales = {m: sys.modules.pop(m) for m in _MODULOS_LAMBDA if m in sys.modules}
+
+    def _cargar(nombre: str):
+        for m in _MODULOS_LAMBDA:
+            sys.modules.pop(m, None)
+        sys.path[:0] = [
+            os.path.join(_DIR_LAMBDAS, nombre),
+            os.path.join(_DIR_LAMBDAS, "comun"),
+        ]
+        return importlib.import_module("handler")
+
+    yield _cargar
+
+    sys.path[:] = path_original
+    for m in _MODULOS_LAMBDA:
+        sys.modules.pop(m, None)
+    sys.modules.update(modulos_originales)
+
+
+@pytest.fixture
 def redis_fake():
     """
     Instancia de fakeredis que reemplaza al cliente Redis real.
