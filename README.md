@@ -92,7 +92,7 @@ con el header `X-Username` (no hay autenticación: queda fuera del alcance del p
 | 15 | Orden por número | `GET /orders/{orderId}` | `Query` en **GSI1** `ORDER#<id>` + **Cache-Aside** (600 s) |
 | 16 | Promoción del día | `GET /promotions/today` | **Redis** (Write-Through) con respaldo en DynamoDB `PROMO#<fecha>` |
 | 17 | Publicar promoción | `POST /promotions` | `PutItem` + **Write-Through** con TTL hasta medianoche de Bogotá |
-| — | Más vistos | `GET /products/ranking` | **Sorted Set** de Redis (`ZINCRBY` en cada detalle) |
+| 18 | Más vistos | `GET /products/ranking` | **Sorted Set** de Redis (`ZINCRBY` en cada detalle) |
 
 Rutas de administración y mantenimiento: `POST /products`, `DELETE /products/{id}`,
 `POST /coupons`, `POST /users`, `POST /search/reindex` (reconstruye el índice de
@@ -100,7 +100,8 @@ Elasticsearch desde DynamoDB) y `GET /health` (estado de DynamoDB, Redis y Elast
 
 ## Diseño de datos
 
-Tabla única `AppTable` con `PK`/`SK` y dos índices. Todas las llaves se construyen en
+Tabla única `AppTable` con `PK`/`SK` y dos índices (detalle de cada decisión en
+`docs/entregables/`). Todas las llaves se construyen en
 `app/lambdas/comun/claves.py`.
 
 | Entidad | PK | SK | Índices |
