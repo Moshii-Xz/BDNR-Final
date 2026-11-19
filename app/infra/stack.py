@@ -11,6 +11,7 @@ Define la infraestructura serverless del proyecto final:
   - Lambda cupones  (GET /coupons/{codigo})
   - Lambda usuarios (perfil, direcciones, wishlist)
   - Lambda ordenes  (checkout transaccional, historial, orden por número)
+  - Lambda promociones (promoción del día, Write-Through hasta medianoche)
   - API Gateway     (RestApi) que enruta las peticiones
 """
 import os
@@ -335,6 +336,20 @@ class ProyectoFinalStack(Stack):
         )
         tabla.grant_read_write_data(lambda_ordenes)
 
+        # ── 4.6 LAMBDA promociones (patrones #16-#17) ─────────────────
+        # Write-Through a Redis con TTL hasta la medianoche de Bogotá.
+        lambda_promociones: _lambda.Function = _lambda.Function(
+            self,
+            "PromocionesHandler",
+            runtime=RUNTIME,
+            handler="handler.main",
+            code=_codigo_lambda("lambdas/promociones", con_comun=True),
+            layers=layers,
+            environment=env_comun,
+            timeout=cdk.Duration.seconds(10),
+        )
+        tabla.grant_read_write_data(lambda_promociones)
+
         # ── 5. API GATEWAY ────────────────────────────────────────────
         # LambdaRestApi crea automáticamente una integración proxy
         # entre API Gateway y la Lambda raíz.
@@ -427,6 +442,12 @@ class ProyectoFinalStack(Stack):
         recurso_user_orders: apigw.Resource = recurso_user_id.add_resource("orders")
         recurso_user_orders.add_method("GET", integ_ordenes)                          # #14
         recurso_user_orders.add_resource("ultima").add_method("GET", integ_ordenes)   # #13
+
+        # ── 5.6 Rutas de promociones → Lambda promociones ─────────────
+        integ_promociones = apigw.LambdaIntegration(lambda_promociones)
+        recurso_promotions: apigw.Resource = api.root.add_resource("promotions")
+        recurso_promotions.add_method("POST", integ_promociones)                       # #17
+        recurso_promotions.add_resource("today").add_method("GET", integ_promociones)  # #16
 
         # ── 6. OUTPUTS ────────────────────────────────────────────────
         CfnOutput(self, "ApiUrl",
