@@ -48,3 +48,16 @@ def cuerpo_json(body_raw: str | None, parse_float: Any = Decimal) -> dict[str, A
     con respuesta_error(400, "...")).
     """
     return json.loads(body_raw or "{}", parse_float=parse_float)
+
+def username_de_evento(event: dict[str, Any]) -> str | None:
+    """
+    Usuario de la petición: header X-Username (sin distinguir mayúsculas)
+    o ?username= como respaldo. El proyecto no tiene autenticación y rutas
+    como /cart o POST /orders no llevan el usuario en el path.
+    """
+    headers: dict[str, str] = event.get("headers") or {}
+    for nombre, valor in headers.items():
+        if nombre.lower() == "x-username" and valor:
+            return valor.strip() or None
+    query: dict[str, str] = event.get("queryStringParameters") or {}
+    return (query.get("username") or "").strip() or None

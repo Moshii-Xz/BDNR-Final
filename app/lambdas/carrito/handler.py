@@ -30,7 +30,14 @@ from botocore.exceptions import ClientError
 
 import claves
 from db import tabla
-from respuestas import RespuestaApi, cuerpo_json, desde_dynamo, respuesta, respuesta_error
+from respuestas import (
+    RespuestaApi,
+    cuerpo_json,
+    desde_dynamo,
+    respuesta,
+    respuesta_error,
+    username_de_evento,
+)
 
 Item: TypeAlias = dict[str, Any]
 
@@ -42,16 +49,6 @@ PREFIJO_CARRITO: str = "CART#"
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
-
-def _username(event: dict[str, Any]) -> str | None:
-    """Header X-Username (sin distinguir mayúsculas) o ?username=."""
-    headers: dict[str, str] = event.get("headers") or {}
-    for nombre, valor in headers.items():
-        if nombre.lower() == "x-username" and valor:
-            return valor.strip() or None
-    query: dict[str, str] = event.get("queryStringParameters") or {}
-    return (query.get("username") or "").strip() or None
-
 
 def _publico(item: Item) -> Item:
     return desde_dynamo({k: v for k, v in item.items() if k not in ("PK", "SK", "tipo")})
@@ -150,7 +147,7 @@ def main(event: dict[str, Any], context: Any) -> RespuestaApi:
 
     logger.info("REQUEST %s %s %s", metodo, recurso, params)
 
-    username: str | None = _username(event)
+    username: str | None = username_de_evento(event)
     if not username:
         return respuesta_error(400, "Falta el usuario: envíe el header X-Username")
 
