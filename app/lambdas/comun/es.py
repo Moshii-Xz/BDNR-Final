@@ -46,15 +46,30 @@ def _get_client() -> Elasticsearch:
     return Elasticsearch(f"http://{host}:{port}", request_timeout=3)
 
 
-def asegurar_indice() -> None:
-    """Crea el índice de productos si todavía no existe (idempotente)."""
+# Se marca True cuando el índice ya existe con el mapeo correcto; vive lo
+# que viva el contenedor de la Lambda (una verificación por arranque en frío).
+_indice_listo: bool = False
+
+
+def asegurar_indice() -> bool:
+    """
+    Crea el índice de productos si todavía no existe (idempotente).
+    Sin esto, el primer index() lo crearía con mapeo dinámico y
+    'categoria' quedaría como text en vez de keyword.
+    """
+    global _indice_listo
+    if _indice_listo:
+        return True
     try:
         client = _get_client()
         if not client.indices.exists(index=INDICE_PRODUCTOS):
             client.indices.create(index=INDICE_PRODUCTOS, mappings=MAPEO_INDICE_PRODUCTOS["mappings"])
             logger.info("Índice '%s' creado en Elasticsearch", INDICE_PRODUCTOS)
+        _indice_listo = True
+        return True
     except ErroresES as e:
         logger.warning("Elasticsearch no disponible (asegurar_indice): %s", e)
+        return False
 
 
 def indexar_producto(producto: dict[str, Any]) -> bool:
@@ -62,6 +77,8 @@ def indexar_producto(producto: dict[str, Any]) -> bool:
     Indexa (o reemplaza) el documento de un producto.
     Se llama justo después de escribir el producto en DynamoDB.
     """
+    if not asegurar_indice():
+        return False
     try:
         client = _get_client()
         client.index(
