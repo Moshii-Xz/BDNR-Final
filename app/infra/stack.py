@@ -8,6 +8,7 @@ Define la infraestructura serverless del proyecto final:
   - Lambda /health  (GET) health check del servicio
   - Lambda productos (catálogo, reseñas, ranking) con código de lambdas/comun
   - Lambda carrito  (GET /cart, PUT/DELETE /cart/{productId})
+  - Lambda cupones  (GET /coupons/{codigo})
   - API Gateway     (RestApi) que enruta las peticiones
 """
 import os
@@ -288,6 +289,21 @@ class ProyectoFinalStack(Stack):
         )
         tabla.grant_read_write_data(lambda_carrito)
 
+        # ── 4.3 LAMBDA cupones (patrón #8) ────────────────────────────
+        # Solo lectura (GetItem); sin caché para no aplicar un cupón
+        # recién desactivado.
+        lambda_cupones: _lambda.Function = _lambda.Function(
+            self,
+            "CuponesHandler",
+            runtime=RUNTIME,
+            handler="handler.main",
+            code=_codigo_lambda("lambdas/cupones", con_comun=True),
+            layers=layers,
+            environment=env_comun,
+            timeout=cdk.Duration.seconds(10),
+        )
+        tabla.grant_read_data(lambda_cupones)
+
         # ── 5. API GATEWAY ────────────────────────────────────────────
         # LambdaRestApi crea automáticamente una integración proxy
         # entre API Gateway y la Lambda raíz.
@@ -356,6 +372,10 @@ class ProyectoFinalStack(Stack):
         recurso_cart_producto: apigw.Resource = recurso_cart.add_resource("{productId}")
         recurso_cart_producto.add_method("PUT", integ_carrito)
         recurso_cart_producto.add_method("DELETE", integ_carrito)
+
+        # ── 5.3 Rutas de cupones → Lambda cupones ─────────────────────
+        (api.root.add_resource("coupons").add_resource("{codigo}")
+            .add_method("GET", apigw.LambdaIntegration(lambda_cupones)))
 
         # ── 6. OUTPUTS ────────────────────────────────────────────────
         CfnOutput(self, "ApiUrl",
