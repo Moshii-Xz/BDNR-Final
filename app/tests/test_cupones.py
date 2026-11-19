@@ -102,3 +102,48 @@ def test_evaluar_cupon(cupones, atributos, subtotal, esperado):
     valido, motivo = reglas.evaluar_cupon(cupon, hoy=HOY, subtotal=subtotal)
     assert valido is esperado
     assert (motivo is None) is esperado
+
+
+# ── POST /coupons ─────────────────────────────────────────────────────
+
+def _crear(handler, body):
+    r = handler.main({"httpMethod": "POST", "resource": "/coupons",
+                      "body": json.dumps(body)}, None)
+    return r["statusCode"], json.loads(r["body"])
+
+
+def test_crear_cupon_y_validarlo(cupones, tabla_ecommerce):
+    status, cuerpo = _crear(cupones, {"codigo": "navidad25", "descuento_pct": 25,
+                                      "vigente_hasta": "2099-12-31", "monto_minimo": 100})
+    assert status == 201
+    assert cuerpo["codigo"] == "NAVIDAD25"
+    assert cuerpo["activo"] is True
+    assert cuerpo["valido"] is True
+
+    status, validado = _validar(cupones, "NAVIDAD25")
+    assert status == 200
+    assert validado["monto_minimo"] == 100
+
+
+def test_crear_cupon_reemplaza_y_puede_desactivar(cupones):
+    _crear(cupones, {"codigo": "TECH10", "descuento_pct": 10})
+    _crear(cupones, {"codigo": "TECH10", "descuento_pct": 10, "activo": False})
+    _, cuerpo = _validar(cupones, "TECH10")
+    assert cuerpo["valido"] is False
+
+
+@pytest.mark.parametrize("body", [
+    {"descuento_pct": 10},
+    {"codigo": "AB", "descuento_pct": 10},
+    {"codigo": "CON ESPACIO", "descuento_pct": 10},
+    {"codigo": "OK10", "descuento_pct": 0},
+    {"codigo": "OK10", "descuento_pct": "10"},
+    {"codigo": "OK10", "descuento_pct": 10, "activo": "si"},
+    {"codigo": "OK10", "descuento_pct": 10, "vigente_hasta": "31/12/2099"},
+    {"codigo": "OK10", "descuento_pct": 10, "vigente_desde": "2099-02-01",
+     "vigente_hasta": "2099-01-01"},
+    {"codigo": "OK10", "descuento_pct": 10, "monto_minimo": -5},
+])
+def test_crear_cupon_invalido_retorna_400(cupones, body):
+    status, _ = _crear(cupones, body)
+    assert status == 400
