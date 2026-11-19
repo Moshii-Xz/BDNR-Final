@@ -137,6 +137,35 @@ class ProyectoFinalStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
+        # ── 1.1 GSI1 (reutilizado por dos patrones) ───────────────────
+        # Las llaves exactas salen de lambdas/comun/claves.py.
+        #  - Productos por categoría (#2):
+        #      GSI1PK = CAT#<categoria>   GSI1SK = PRODUCT#<id>
+        #  - Orden por número sin saber el usuario (#15):
+        #      GSI1PK = ORDER#<orderId>   GSI1SK = ORDER#HEADER | ITEM#<productId>
+        # Un solo índice con prefijos distintos en vez de uno por patrón.
+        # Projection ALL: las pantallas que lo usan (listado de categoría,
+        # detalle de orden) necesitan el ítem completo; con KEYS_ONLY habría
+        # que hacer un GetItem extra por cada resultado.
+        tabla.add_global_secondary_index(
+            index_name="GSI1",
+            partition_key=ddb.Attribute(name="GSI1PK", type=ddb.AttributeType.STRING),
+            sort_key=ddb.Attribute(name="GSI1SK", type=ddb.AttributeType.STRING),
+            projection_type=ddb.ProjectionType.ALL,
+        )
+
+        # ── 1.2 GSI2 (productos por marca) ────────────────────────────
+        #  - Productos de una marca y opcionalmente de una categoría (#5):
+        #      GSI2PK = BRAND#<marca>   GSI2SK = CAT#<categoria>#PRODUCT#<id>
+        # La categoría va al inicio de la SK para que begins_with("CAT#<cat>")
+        # sirva como filtro opcional con la misma consulta.
+        tabla.add_global_secondary_index(
+            index_name="GSI2",
+            partition_key=ddb.Attribute(name="GSI2PK", type=ddb.AttributeType.STRING),
+            sort_key=ddb.Attribute(name="GSI2SK", type=ddb.AttributeType.STRING),
+            projection_type=ddb.ProjectionType.ALL,
+        )
+
         # Variables de entorno comunes para todas las Lambdas
         env_comun: dict[str, str] = {
             "TABLE_NAME": tabla.table_name,
