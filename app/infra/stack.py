@@ -6,6 +6,7 @@ Define la infraestructura serverless del proyecto final:
   - Lambda Layer    con las dependencias de las Lambdas (boto3, botocore, redis)
   - Lambda /items   (POST, GET, DELETE) con patrón Cache-Aside sobre Redis
   - Lambda /health  (GET) health check del servicio
+  - Lambda productos (catálogo, reseñas, ranking) con código de lambdas/comun
   - API Gateway     (RestApi) que enruta las peticiones
 """
 import os
@@ -30,6 +31,8 @@ from constructs import Construct
 RUNTIME: _lambda.Runtime = _lambda.Runtime.PYTHON_3_11
 DIR_LAYER: str = "layers/dependencias"
 REQUIREMENTS_LAYER: str = os.path.join(DIR_LAYER, "requirements.txt")
+# Código compartido por las Lambdas del ecommerce (claves, caché, db, ...)
+DIR_COMUN: str = "lambdas/comun"
 
 # LocalStack Community acepta las Lambda Layers pero no las monta al ejecutar
 # (es una función de LocalStack Pro). Cuando se despliega en el emulador
@@ -71,33 +74,51 @@ class _PipLocal:
 
     def __init__(
         self,
-        requirements: str,
+        requirements: str | None,
         subdir: str = "",
-        copiar_desde: str | None = None,
+        copiar_desde: list[str] | None = None,
     ) -> None:
-        self.requirements: str = requirements
+        # requirements=None: solo copia código (en AWS las dependencias van en la layer)
+        self.requirements: str | None = requirements
         self.subdir: str = subdir
-        self.copiar_desde: str | None = copiar_desde
+        self.copiar_desde: list[str] = copiar_desde or []
 
     def try_bundle(self, output_dir: str, *args: Any, **kwargs: Any) -> bool:
-        if self.copiar_desde:
+        # Todo se copia plano en la raíz del asset: las Lambdas importan
+        # sus módulos y los de comun/ como `from cache import ...`
+        for origen in self.copiar_desde:
             shutil.copytree(
-                self.copiar_desde,
+                origen,
                 output_dir,
                 dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns("__pycache__"),
+                ignore=shutil.ignore_patterns("__pycache__", "__init__.py"),
             )
-        _pip_install(self.requirements, os.path.join(output_dir, self.subdir))
+        if self.requirements:
+            _pip_install(self.requirements, os.path.join(output_dir, self.subdir))
         return True
 
 
-def _codigo_lambda(directorio: str) -> _lambda.Code:
+def _codigo_lambda(directorio: str, con_comun: bool = False) -> _lambda.Code:
     """
     Código de una Lambda. En AWS solo nuestros .py (las dependencias van en
     la layer); en LocalStack, nuestros .py + las dependencias de la layer.
+
+    con_comun=True copia también lambdas/comun/ dentro del asset: cada asset
+    se construye solo desde su carpeta, así que sin esto comun/ no viajaría.
     """
+    origenes: list[str] = [DIR_COMUN, directorio] if con_comun else [directorio]
     if not ES_LOCAL:
-        return _lambda.Code.from_asset(directorio)
+        if not con_comun:
+            return _lambda.Code.from_asset(directorio)
+        return _lambda.Code.from_asset(
+            directorio,
+            asset_hash_type=cdk.AssetHashType.OUTPUT,
+            bundling=cdk.BundlingOptions(
+                image=RUNTIME.bundling_image,
+                command=["bash", "-c", "echo 'Requiere bundling local' && exit 1"],
+                local=_PipLocal(None, copiar_desde=origenes),
+            ),
+        )
     return _lambda.Code.from_asset(
         directorio,
         # El hash se calcula sobre el resultado, así también cambia
@@ -107,7 +128,7 @@ def _codigo_lambda(directorio: str) -> _lambda.Code:
             # Solo se usaría si falla el bundling local (cdk-dev no tiene Docker)
             image=RUNTIME.bundling_image,
             command=["bash", "-c", "echo 'Requiere bundling local con pip' && exit 1"],
-            local=_PipLocal(REQUIREMENTS_LAYER, copiar_desde=directorio),
+            local=_PipLocal(REQUIREMENTS_LAYER, copiar_desde=origenes),
         ),
     )
 
@@ -231,6 +252,26 @@ class ProyectoFinalStack(Stack):
         )
         tabla.grant_read_data(lambda_health)
 
+        # ── 4.1 LAMBDA productos (patrones #1-#5 + ranking) ───────────
+        # Cache-Aside en el detalle; doble escritura al índice de
+        # Elasticsearch al crear/eliminar (búsqueda libre, patrón #6).
+        env_ecommerce: dict[str, str] = {
+            **env_comun,
+            "ES_HOST": os.environ.get("ES_HOST", "elasticsearch"),
+            "ES_PORT": os.environ.get("ES_PORT", "9200"),
+        }
+        lambda_productos: _lambda.Function = _lambda.Function(
+            self,
+            "ProductosHandler",
+            runtime=RUNTIME,
+            handler="handler.main",
+            code=_codigo_lambda("lambdas/productos", con_comun=True),
+            layers=layers,
+            environment=env_ecommerce,
+            timeout=cdk.Duration.seconds(10),
+        )
+        tabla.grant_read_write_data(lambda_productos)
+
         # ── 5. API GATEWAY ────────────────────────────────────────────
         # LambdaRestApi crea automáticamente una integración proxy
         # entre API Gateway y la Lambda raíz.
@@ -266,6 +307,30 @@ class ProyectoFinalStack(Stack):
             "GET",
             apigw.LambdaIntegration(lambda_health),
         )
+
+        # ── 5.1 Rutas del catálogo → Lambda productos ─────────────────
+        integ_productos = apigw.LambdaIntegration(lambda_productos)
+
+        # /products → GET (#3 catálogo) y POST (crear)
+        recurso_products: apigw.Resource = api.root.add_resource("products")
+        recurso_products.add_method("GET", integ_productos)
+        recurso_products.add_method("POST", integ_productos)
+        # /products/ranking → GET (literal: API Gateway lo prefiere sobre {id})
+        recurso_products.add_resource("ranking").add_method("GET", integ_productos)
+        # /products/{id} → GET (#1 detalle) y DELETE
+        recurso_product_id: apigw.Resource = recurso_products.add_resource("{id}")
+        recurso_product_id.add_method("GET", integ_productos)
+        recurso_product_id.add_method("DELETE", integ_productos)
+        # /products/{id}/reviews → GET y POST (#4)
+        recurso_reviews: apigw.Resource = recurso_product_id.add_resource("reviews")
+        recurso_reviews.add_method("GET", integ_productos)
+        recurso_reviews.add_method("POST", integ_productos)
+        # /categories/{categoria}/products → GET (#2, GSI1)
+        (api.root.add_resource("categories").add_resource("{categoria}")
+            .add_resource("products").add_method("GET", integ_productos))
+        # /brands/{marca}/products?categoria= → GET (#5, GSI2)
+        (api.root.add_resource("brands").add_resource("{marca}")
+            .add_resource("products").add_method("GET", integ_productos))
 
         # ── 6. OUTPUTS ────────────────────────────────────────────────
         CfnOutput(self, "ApiUrl",
