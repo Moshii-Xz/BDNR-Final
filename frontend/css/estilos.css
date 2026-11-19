@@ -151,6 +151,15 @@ img, svg { display: block; }
 .cargando { color: var(--texto-suave); padding: 24px 0; }
 .texto-error { color: var(--error); }
 
+/* Atkinson Hyperlegible dibuja el cero con barra (ayuda a leer texto corrido),
+   pero en precios, cantidades y nombres de producto se vuelve ruido: esas
+   cifras van con la fuente de títulos. */
+.precio-antes, .linea__unidad, .cuentas, .ranking__nombre, .ranking__vistas,
+.resena__cabeza time, .tabla .num, .ultimo__detalle, .reloj__nota, .ficha__stock,
+.servicio, .paso output, .favoritos li span, input[type="number"] {
+  font-family: var(--display);
+}
+
 /* ── Hero: producto del día ─────────────────────────────────────────── */
 .hero {
   display: grid;
@@ -207,7 +216,7 @@ img, svg { display: block; }
 /* ── Botones, campos y etiquetas ────────────────────────────────────── */
 .boton {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  font: 700 1rem/1 var(--texto-f);
+  font: 700 1rem/1 var(--display);
   padding: 12px 22px; border-radius: 999px;
   border: 2px solid var(--mangle); background: var(--mangle); color: var(--blanco);
   cursor: pointer; text-decoration: none;
@@ -347,8 +356,10 @@ img, svg { display: block; }
 .estrellas__vacias { color: var(--bruma); }
 
 .resena-form { background: var(--blanco); border: 1px solid var(--bruma); border-radius: var(--r-losa); padding: 22px; }
-.calificar { border: 0; padding: 0; margin: 0 0 14px; display: inline-flex; flex-direction: row-reverse; gap: 2px; }
-.calificar legend { font-weight: 700; font-size: 0.95rem; margin-bottom: 4px; float: left; width: 100%; }
+.calificar { border: 0; padding: 0; margin: 0 0 14px; }
+.calificar legend { font-weight: 700; font-size: 0.95rem; margin-bottom: 4px; padding: 0; }
+/* row-reverse: así "~" pinta la estrella elegida y las anteriores */
+.calificar__estrellas { display: inline-flex; flex-direction: row-reverse; gap: 2px; }
 .calificar input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .calificar label { font-size: 1.9rem; line-height: 1; color: var(--bruma); cursor: pointer; padding: 0 2px; }
 .calificar input:checked ~ label,
@@ -385,9 +396,9 @@ img, svg { display: block; }
   background: var(--blanco); border: 1px solid var(--bruma); border-radius: var(--r-losa); padding: 24px;
 }
 .cupon__estado { font-size: 0.92rem; margin: -6px 0 14px; min-height: 1.2em; }
-.cuentas { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 18px 0; font-variant-numeric: tabular-nums; }
+.cuentas { display: grid; grid-template-columns: 1fr auto; row-gap: 6px; margin: 18px 0; font-variant-numeric: tabular-nums; }
 .cuentas dt, .cuentas dd { margin: 0; }
-.cuentas dd { text-align: right; }
+.cuentas dd { text-align: right; padding-left: 12px; }
 .cuentas__total { font: 800 1.35rem/1.2 var(--display); padding-top: 10px; border-top: 2px solid var(--abismo); }
 
 /* ── Pedidos ────────────────────────────────────────────────────────── */
@@ -512,7 +523,12 @@ img, svg { display: block; }
   body.con-inspector .contenido,
   body.con-inspector .cabecera__fila,
   body.con-inspector .menu,
-  body.con-inspector .pie { margin-right: var(--inspector); margin-left: 0; }
+  body.con-inspector .pie {
+    /* El panel ocupa la derecha: el contenido se encoge al espacio que queda */
+    max-width: min(var(--ancho), calc(100vw - var(--inspector)));
+    margin-left: max(0px, calc((100vw - var(--inspector) - var(--ancho)) / 2));
+    margin-right: var(--inspector);
+  }
 }
 
 /* ── Avisos ─────────────────────────────────────────────────────────── */
@@ -543,9 +559,12 @@ img, svg { display: block; }
 }
 
 @media (max-width: 720px) {
-  .cabecera__fila { flex-wrap: wrap; gap: 12px; }
-  .buscador { order: 3; flex-basis: 100%; }
-  .usuario { margin-left: auto; }
+  .cabecera__fila { flex-wrap: wrap; gap: 10px 14px; }
+  .buscador { order: 4; flex-basis: 100%; }
+  .usuario { order: 2; margin-left: auto; }
+  .usuario svg { display: none; }
+  .usuario select { max-width: 150px; }
+  .carrito-enlace { order: 3; }
   .carrito-enlace__texto { display: none; }
   .ficha { grid-template-columns: 1fr; }
   .ficha__arte { aspect-ratio: 16 / 10; }

@@ -227,7 +227,9 @@ export async function producto(main, { params }) {
         <h3 class="subtitulo">Escribir una reseña como ${esc(estado.usuario)}</h3>
         <fieldset class="calificar">
           <legend>Calificación</legend>
-          ${[5, 4, 3, 2, 1].map((n) => `<input type="radio" id="cal-${n}" name="calificacion" value="${n}" ${n === 5 ? "checked" : ""}><label for="cal-${n}" title="${n} de 5">★</label>`).join("")}
+          <span class="calificar__estrellas">
+            ${[5, 4, 3, 2, 1].map((n) => `<input type="radio" id="cal-${n}" name="calificacion" value="${n}" ${n === 5 ? "checked" : ""}><label for="cal-${n}" title="${n} de 5"><span class="sr">${n} de 5</span><span aria-hidden="true">★</span></label>`).join("")}
+          </span>
         </fieldset>
         <label class="campo">Comentario
           <textarea name="comentario" rows="3" maxlength="500" placeholder="¿Qué te pareció?"></textarea>

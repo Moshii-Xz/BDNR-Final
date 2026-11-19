@@ -160,9 +160,12 @@ alRegistrar(() => {
 async function arrancar() {
   pintarCabecera();
   alCambiar(pintarCabecera);
+  // ?inspector=1 en la URL lo abre (útil para presentar la demo con el panel)
+  let abrir = new URLSearchParams(location.search).get("inspector") === "1";
   try {
-    if (localStorage.getItem("marea.inspector") === "1") abrirInspector(true);
+    abrir = abrir || localStorage.getItem("marea.inspector") === "1";
   } catch { /* sin almacenamiento */ }
+  if (abrir) abrirInspector(true);
 
   try {
     await conectar();
