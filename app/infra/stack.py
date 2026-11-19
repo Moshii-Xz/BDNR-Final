@@ -5,13 +5,14 @@ Define la infraestructura serverless del proyecto final:
   - Tabla DynamoDB  (Single Table Design, PK+SK)
   - Lambda Layer    con las dependencias de las Lambdas (boto3, botocore, redis)
   - Lambda /items   (POST, GET, DELETE) con patrón Cache-Aside sobre Redis
-  - Lambda /health  (GET) health check del servicio
+  - Lambda /health  (GET) health check de DynamoDB, Redis y Elasticsearch
   - Lambda productos (catálogo, reseñas, ranking) con código de lambdas/comun
   - Lambda carrito  (GET /cart, PUT/DELETE /cart/{productId})
   - Lambda cupones  (GET /coupons/{codigo})
   - Lambda usuarios (perfil, direcciones, wishlist)
   - Lambda ordenes  (checkout transaccional, historial, orden por número)
   - Lambda promociones (promoción del día, Write-Through hasta medianoche)
+  - Lambda busqueda (GET /search, Elasticsearch)
   - API Gateway     (RestApi) que enruta las peticiones
 """
 import os
@@ -198,6 +199,10 @@ class ProyectoFinalStack(Stack):
             "REDIS_HOST": os.environ.get("REDIS_HOST", "redis"),
             "REDIS_PORT": os.environ.get("REDIS_PORT", "6379"),
             "REDIS_TTL":  "300",   # segundos de vida en caché
+            # Elasticsearch (espejo para la búsqueda libre); lo usan
+            # productos, busqueda y el health check
+            "ES_HOST": os.environ.get("ES_HOST", "elasticsearch"),
+            "ES_PORT": os.environ.get("ES_PORT", "9200"),
         }
 
         # ── 2. LAMBDA LAYER (dependencias) ────────────────────────────
@@ -260,11 +265,6 @@ class ProyectoFinalStack(Stack):
         # ── 4.1 LAMBDA productos (patrones #1-#5 + ranking) ───────────
         # Cache-Aside en el detalle; doble escritura al índice de
         # Elasticsearch al crear/eliminar (búsqueda libre, patrón #6).
-        env_ecommerce: dict[str, str] = {
-            **env_comun,
-            "ES_HOST": os.environ.get("ES_HOST", "elasticsearch"),
-            "ES_PORT": os.environ.get("ES_PORT", "9200"),
-        }
         lambda_productos: _lambda.Function = _lambda.Function(
             self,
             "ProductosHandler",
@@ -272,7 +272,7 @@ class ProyectoFinalStack(Stack):
             handler="handler.main",
             code=_codigo_lambda("lambdas/productos", con_comun=True),
             layers=layers,
-            environment=env_ecommerce,
+            environment=env_comun,
             timeout=cdk.Duration.seconds(10),
         )
         tabla.grant_read_write_data(lambda_productos)
@@ -349,6 +349,19 @@ class ProyectoFinalStack(Stack):
             timeout=cdk.Duration.seconds(10),
         )
         tabla.grant_read_write_data(lambda_promociones)
+
+        # ── 4.7 LAMBDA busqueda (patrón #6) ───────────────────────────
+        # Solo consulta Elasticsearch: no necesita permisos sobre la tabla.
+        lambda_busqueda: _lambda.Function = _lambda.Function(
+            self,
+            "BusquedaHandler",
+            runtime=RUNTIME,
+            handler="handler.main",
+            code=_codigo_lambda("lambdas/busqueda", con_comun=True),
+            layers=layers,
+            environment=env_comun,
+            timeout=cdk.Duration.seconds(10),
+        )
 
         # ── 5. API GATEWAY ────────────────────────────────────────────
         # LambdaRestApi crea automáticamente una integración proxy
@@ -448,6 +461,10 @@ class ProyectoFinalStack(Stack):
         recurso_promotions: apigw.Resource = api.root.add_resource("promotions")
         recurso_promotions.add_method("POST", integ_promociones)                       # #17
         recurso_promotions.add_resource("today").add_method("GET", integ_promociones)  # #16
+
+        # ── 5.7 Ruta de búsqueda → Lambda busqueda ────────────────────
+        (api.root.add_resource("search")
+            .add_method("GET", apigw.LambdaIntegration(lambda_busqueda)))
 
         # ── 6. OUTPUTS ────────────────────────────────────────────────
         CfnOutput(self, "ApiUrl",
