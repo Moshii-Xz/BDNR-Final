@@ -18,7 +18,7 @@ from typing import Any
 from elasticsearch import Elasticsearch
 # En elasticsearch-py 8.x ya no existe ElasticsearchException: los errores
 # del servidor son ApiError y los de red/conexión TransportError.
-from elasticsearch import ApiError, TransportError
+from elasticsearch import ApiError, TransportError, helpers
 
 ErroresES = (ApiError, TransportError)
 
@@ -72,6 +72,51 @@ def asegurar_indice() -> bool:
         return False
 
 
+def _documento(producto: dict[str, Any]) -> dict[str, Any]:
+    """Campos del producto que se copian al espejo de búsqueda."""
+    return {
+        "productId": producto["id"],
+        "nombre": producto.get("nombre", ""),
+        "marca": producto.get("marca", ""),
+        "categoria": producto.get("categoria", ""),
+        "descripcion": producto.get("descripcion", ""),
+        "precio": producto.get("precio", 0),
+    }
+
+
+def reconstruir_indice(productos: list[dict[str, Any]]) -> int | None:
+    """
+    Reconstruye el espejo completo desde DynamoDB: borra el índice, lo crea
+    de nuevo con su mapeo y carga todos los productos con la Bulk API (una
+    sola petición en vez de una por producto). Sirve para productos que se
+    escribieron sin pasar por la Lambda o mientras ES estaba caído, y para
+    limpiar documentos de productos que ya no existen.
+    Retorna cuántos se indexaron, o None si ES no está disponible.
+    """
+    global _indice_listo
+    try:
+        client = _get_client()
+        client.options(ignore_status=404).indices.delete(index=INDICE_PRODUCTOS)
+        _indice_listo = False
+        if not asegurar_indice():
+            return None
+        acciones = (
+            {"_index": INDICE_PRODUCTOS, "_id": p["id"], "_source": _documento(p)}
+            for p in productos
+        )
+        # raise_on_error=False: un documento rechazado no aborta el resto;
+        # se registra y se reporta en el conteo.
+        indexados, errores = helpers.bulk(
+            client, acciones, refresh=True, raise_on_error=False
+        )
+        if errores:
+            logger.warning("Reindexación: %d documentos rechazados", len(errores))
+        return int(indexados)
+    except ErroresES as e:
+        logger.warning("Elasticsearch no disponible (reconstruir_indice): %s", e)
+        return None
+
+
 def indexar_producto(producto: dict[str, Any]) -> bool:
     """
     Indexa (o reemplaza) el documento de un producto.
@@ -84,14 +129,7 @@ def indexar_producto(producto: dict[str, Any]) -> bool:
         client.index(
             index=INDICE_PRODUCTOS,
             id=producto["id"],
-            document={
-                "productId": producto["id"],
-                "nombre": producto.get("nombre", ""),
-                "marca": producto.get("marca", ""),
-                "categoria": producto.get("categoria", ""),
-                "descripcion": producto.get("descripcion", ""),
-                "precio": producto.get("precio", 0),
-            },
+            document=_documento(producto),
         )
         return True
     except ErroresES as e:
