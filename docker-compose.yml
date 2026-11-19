@@ -25,6 +25,11 @@ services:
       # Docker Compose crea una automáticamente la red <nombre-del-proyecto>_default
       # y conecta a ella todos los servicios del compose.
       LAMBDA_DOCKER_NETWORK: bdnr-final-local
+      # Segundos que LocalStack espera a que arranque el contenedor de una
+      # Lambda (por defecto 20). Con varias Lambdas arrancando en frío a la
+      # vez (la tienda pide carrito, promoción, catálogo... al cargar) y cada
+      # una copiando sus dependencias, 20 s no alcanzan en Docker Desktop.
+      LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT: "120"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./emulador-data:/var/lib/localstack
