@@ -16,7 +16,11 @@ import os
 from typing import Any
 
 from elasticsearch import Elasticsearch
-from elasticsearch.exceptions import ElasticsearchException
+# En elasticsearch-py 8.x ya no existe ElasticsearchException: los errores
+# del servidor son ApiError y los de red/conexión TransportError.
+from elasticsearch import ApiError, TransportError
+
+ErroresES = (ApiError, TransportError)
 
 logger: logging.Logger = logging.getLogger(__name__)
 
@@ -47,9 +51,9 @@ def asegurar_indice() -> None:
     try:
         client = _get_client()
         if not client.indices.exists(index=INDICE_PRODUCTOS):
-            client.indices.create(index=INDICE_PRODUCTOS, body=MAPEO_INDICE_PRODUCTOS)
+            client.indices.create(index=INDICE_PRODUCTOS, mappings=MAPEO_INDICE_PRODUCTOS["mappings"])
             logger.info("Índice '%s' creado en Elasticsearch", INDICE_PRODUCTOS)
-    except ElasticsearchException as e:
+    except ErroresES as e:
         logger.warning("Elasticsearch no disponible (asegurar_indice): %s", e)
 
 
@@ -73,7 +77,7 @@ def indexar_producto(producto: dict[str, Any]) -> bool:
             },
         )
         return True
-    except ElasticsearchException as e:
+    except ErroresES as e:
         logger.warning("Elasticsearch no disponible (indexar_producto): %s", e)
         return False
 
@@ -81,9 +85,10 @@ def indexar_producto(producto: dict[str, Any]) -> bool:
 def eliminar_producto_indice(product_id: str) -> bool:
     try:
         client = _get_client()
-        client.delete(index=INDICE_PRODUCTOS, id=product_id, ignore=[404])
+        # 404 = el documento ya no estaba indexado; no es un error
+        client.options(ignore_status=404).delete(index=INDICE_PRODUCTOS, id=product_id)
         return True
-    except ElasticsearchException as e:
+    except ErroresES as e:
         logger.warning("Elasticsearch no disponible (eliminar_producto_indice): %s", e)
         return False
 
@@ -108,6 +113,6 @@ def buscar_productos(texto: str, limite: int = 20) -> list[dict[str, Any]]:
             },
         )
         return [hit["_source"] for hit in resultado["hits"]["hits"]]
-    except ElasticsearchException as e:
+    except ErroresES as e:
         logger.warning("Elasticsearch no disponible (buscar_productos): %s", e)
         return []

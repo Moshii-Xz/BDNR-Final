@@ -1,5 +1,9 @@
 """
-───────
+respuestas
+──────────
+(No se llama http.py para no tapar el módulo http de la librería
+estándar, que usan botocore/urllib3: las Lambdas importan planos.)
+
 Helpers de formato para las respuestas del API Gateway (proxy integration)
 y conversión de los tipos que devuelve DynamoDB (Decimal) a tipos nativos
 de Python serializables en JSON.
