@@ -122,3 +122,28 @@ def test_es_caido_no_lanza_excepcion(es_modulo, monkeypatch):
 def test_buscar_devuelve_los_source(es_modulo, monkeypatch):
     monkeypatch.setattr(es_modulo, "_get_client", lambda: _ClienteFalso(indice_existe=True))
     assert es_modulo.buscar_productos("mouse") == [{"productId": "P1"}]
+
+
+# ── POST /search/reindex ──────────────────────────────────────────────
+
+def test_reindex_lee_productos_de_dynamo_sin_resenas(busqueda, tabla_ecommerce, monkeypatch):
+    tabla_ecommerce.put_item(Item={"PK": "PRODUCT#P1", "SK": "PRODUCT#P1", "id": "P1",
+                                   "nombre": "Mouse", "precio": 10})
+    tabla_ecommerce.put_item(Item={"PK": "PRODUCT#P1", "SK": "REVIEW#2026-11-19#ana",
+                                   "calificacion": 5})
+    tabla_ecommerce.put_item(Item={"PK": "USER#ana", "SK": "USER#ana"})
+    recibidos = []
+    monkeypatch.setattr(busqueda, "reconstruir_indice",
+                        lambda productos: recibidos.extend(productos) or len(productos))
+
+    r = busqueda.main({"httpMethod": "POST", "resource": "/search/reindex"}, None)
+    assert r["statusCode"] == 200
+    assert json.loads(r["body"]) == {"productos_en_dynamodb": 1, "indexados": 1}
+    assert [p["id"] for p in recibidos] == ["P1"]
+    assert recibidos[0]["precio"] == 10        # Decimal → int antes de mandarlo a ES
+
+
+def test_reindex_con_es_caido_retorna_503(busqueda, tabla_ecommerce, monkeypatch):
+    monkeypatch.setattr(busqueda, "reconstruir_indice", lambda productos: None)
+    r = busqueda.main({"httpMethod": "POST", "resource": "/search/reindex"}, None)
+    assert r["statusCode"] == 503

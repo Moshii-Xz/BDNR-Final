@@ -350,8 +350,8 @@ class ProyectoFinalStack(Stack):
         )
         tabla.grant_read_write_data(lambda_promociones)
 
-        # ── 4.7 LAMBDA busqueda (patrón #6) ───────────────────────────
-        # Solo consulta Elasticsearch: no necesita permisos sobre la tabla.
+        # ── 4.7 LAMBDA busqueda (patrón #6 + reindexación) ────────────
+        # Busca en Elasticsearch; solo lee la tabla para reconstruir el índice.
         lambda_busqueda: _lambda.Function = _lambda.Function(
             self,
             "BusquedaHandler",
@@ -360,8 +360,10 @@ class ProyectoFinalStack(Stack):
             code=_codigo_lambda("lambdas/busqueda", con_comun=True),
             layers=layers,
             environment=env_comun,
-            timeout=cdk.Duration.seconds(10),
+            # La reindexación hace Scan + Bulk: más margen que una búsqueda
+            timeout=cdk.Duration.seconds(30),
         )
+        tabla.grant_read_data(lambda_busqueda)
 
         # ── 5. API GATEWAY ────────────────────────────────────────────
         # LambdaRestApi crea automáticamente una integración proxy
@@ -473,8 +475,10 @@ class ProyectoFinalStack(Stack):
         recurso_promotions.add_resource("today").add_method("GET", integ_promociones)  # #16
 
         # ── 5.7 Ruta de búsqueda → Lambda busqueda ────────────────────
-        (api.root.add_resource("search")
-            .add_method("GET", apigw.LambdaIntegration(lambda_busqueda)))
+        integ_busqueda = apigw.LambdaIntegration(lambda_busqueda)
+        recurso_search: apigw.Resource = api.root.add_resource("search")
+        recurso_search.add_method("GET", integ_busqueda)                             # #6
+        recurso_search.add_resource("reindex").add_method("POST", integ_busqueda)    # mantenimiento
 
         # ── 6. OUTPUTS ────────────────────────────────────────────────
         CfnOutput(self, "ApiUrl",

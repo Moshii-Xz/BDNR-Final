@@ -4,10 +4,12 @@ Lambda busqueda
 Búsqueda libre de productos por texto (patrón de acceso #6).
 
 Rutas soportadas:
-  GET /search?q=<texto>&limite=<n>  → productos cuyo nombre, marca o
-                                      descripción coinciden con el texto
+  GET  /search?q=<texto>&limite=<n>  → productos cuyo nombre, marca o
+                                       descripción coinciden con el texto
+  POST /search/reindex               → reconstruye el índice desde DynamoDB
+                                       (Scan de productos + Bulk API)
 
-No usa DynamoDB: buscar una palabra dentro de un texto no es una búsqueda
+La búsqueda no usa DynamoDB: buscar una palabra dentro de un texto no es una búsqueda
 por igualdad de llave, así que se resuelve contra el índice espejo
 "productos" de Elasticsearch (multi_match con fuzziness, nombre con boost x2).
 DynamoDB sigue siendo la fuente de verdad: la Lambda productos escribe ese
@@ -20,8 +22,11 @@ Sin Redis encima: ES ya tiene su propia caché de consultas.
 import logging
 from typing import Any
 
-from es import buscar_productos
-from respuestas import RespuestaApi, respuesta, respuesta_error
+from boto3.dynamodb.conditions import Attr
+
+from db import tabla
+from es import buscar_productos, reconstruir_indice
+from respuestas import RespuestaApi, desde_dynamo, respuesta, respuesta_error
 
 logger: logging.Logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -50,6 +55,28 @@ def buscar(query: dict[str, str]) -> RespuestaApi:
     })
 
 
+def reindexar() -> RespuestaApi:
+    """
+    Scan de los productos (mismo filtro que el catálogo completo #3: excluye
+    reseñas). Es una operación de mantenimiento, no de cada visita.
+    """
+    filtro = Attr("PK").begins_with("PRODUCT#") & Attr("SK").begins_with("PRODUCT#")
+    productos: list[dict[str, Any]] = []
+    kwargs: dict[str, Any] = {"FilterExpression": filtro}
+    while True:
+        pagina = tabla().scan(**kwargs)
+        productos.extend(desde_dynamo(i) for i in pagina.get("Items", []))
+        if "LastEvaluatedKey" not in pagina:
+            break
+        kwargs["ExclusiveStartKey"] = pagina["LastEvaluatedKey"]
+
+    indexados = reconstruir_indice(productos)
+    if indexados is None:
+        return respuesta_error(503, "Elasticsearch no está disponible")
+    logger.info("Reindexación: %d de %d productos", indexados, len(productos))
+    return respuesta(200, {"productos_en_dynamodb": len(productos), "indexados": indexados})
+
+
 def main(event: dict[str, Any], context: Any) -> RespuestaApi:
     metodo: str = event.get("httpMethod", "GET")
     recurso: str = event.get("resource", "")
@@ -58,4 +85,6 @@ def main(event: dict[str, Any], context: Any) -> RespuestaApi:
 
     if (metodo, recurso) == ("GET", "/search"):
         return buscar(event.get("queryStringParameters") or {})
+    if (metodo, recurso) == ("POST", "/search/reindex"):
+        return reindexar()
     return respuesta_error(405, f"Método '{metodo}' no soportado en '{recurso}'")
