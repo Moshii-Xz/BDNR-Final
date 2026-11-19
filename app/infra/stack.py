@@ -15,10 +15,12 @@ Define la infraestructura serverless del proyecto final:
   - Lambda busqueda (GET /search, Elasticsearch)
   - API Gateway     (RestApi) que enruta las peticiones
 """
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 import aws_cdk as cdk
@@ -69,6 +71,25 @@ def _pip_install(requirements: str, destino: str) -> None:
     )
 
 
+def _dependencias_instaladas(requirements: str) -> str:
+    """
+    Instala las dependencias UNA vez en un directorio temporal del contenedor
+    (identificado por el hash de requirements.txt) y retorna su ruta. Cada
+    Lambda copia desde ahí en vez de correr pip por su cuenta; mientras el
+    archivo no cambie, los synth siguientes ni siquiera llaman a pip.
+    """
+    with open(requirements, "rb") as f:
+        huella: str = hashlib.sha256(f.read()).hexdigest()[:16]
+    destino: str = os.path.join(tempfile.gettempdir(), f"bdnr-dependencias-{huella}")
+    if not os.path.isdir(destino):
+        parcial: str = destino + ".parcial"
+        shutil.rmtree(parcial, ignore_errors=True)
+        _pip_install(requirements, parcial)
+        # rename al final: un pip interrumpido no deja un caché a medias
+        os.rename(parcial, destino)
+    return destino
+
+
 @jsii.implements(cdk.ILocalBundling)
 class _PipLocal:
     """
@@ -100,7 +121,11 @@ class _PipLocal:
                 ignore=shutil.ignore_patterns("__pycache__", "__init__.py"),
             )
         if self.requirements:
-            _pip_install(self.requirements, os.path.join(output_dir, self.subdir))
+            shutil.copytree(
+                _dependencias_instaladas(self.requirements),
+                os.path.join(output_dir, self.subdir),
+                dirs_exist_ok=True,
+            )
         return True
 
 

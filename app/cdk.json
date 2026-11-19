@@ -1,5 +1,6 @@
 {
   "app": "python infra/app.py",
+  "output": "/tmp/cdk.out",
   "watch": {
     "include": ["**"],
     "exclude": [
