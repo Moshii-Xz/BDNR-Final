@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es-CO">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marea, tecnología en Santa Marta</title>
+  <meta name="description" content="Tienda de demostración del proyecto final de Bases de Datos No Relacionales: DynamoDB, Redis y Elasticsearch.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="css/estilos.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B2E3F'/%3E%3Cpath d='M5 20c4-5 7-5 11 0s7 5 11 0' stroke='%23FFC21A' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+  <a class="saltar" href="#contenido">Saltar al contenido</a>
+
+  <header class="cabecera">
+    <div class="cabecera__fila">
+      <a class="marca" href="#/" aria-label="Marea, inicio">
+        <svg viewBox="0 0 40 24" aria-hidden="true"><path d="M2 16c6-8 10-8 18 0s12 8 18 0" /></svg>
+        <span>Marea</span>
+      </a>
+
+      <form class="buscador" id="buscador" role="search">
+        <label class="sr" for="q">Buscar productos</label>
+        <input id="q" type="search" placeholder="Busque por nombre, marca o descripción" autocomplete="off">
+        <button class="boton boton--claro" type="submit">Buscar</button>
+      </form>
+
+      <label class="usuario">
+        <span class="sr">Comprando como</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>
+        <select id="usuario"></select>
+      </label>
+
+      <a class="carrito-enlace" id="enlace-carrito" href="#/carrito" data-seccion="carrito">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 11h11L21 8H6.2"/><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/></svg>
+        <span class="carrito-enlace__texto">Carrito</span>
+        <span class="contador" id="contador-carrito" hidden>0</span>
+      </a>
+    </div>
+
+    <nav class="menu" aria-label="Secciones">
+      <a href="#/" data-seccion="inicio">Tienda</a>
+      <a href="#/pedidos" data-seccion="pedidos">Mis pedidos</a>
+      <a href="#/cuenta" data-seccion="cuenta">Mi cuenta</a>
+      <a href="#/gestion" data-seccion="gestion">Gestión</a>
+    </nav>
+  </header>
+
+  <main id="contenido" class="contenido" tabindex="-1"></main>
+
+  <button class="abrir-inspector" id="abrir-inspector" type="button" aria-expanded="false" aria-controls="inspector">
+    Por dentro <span class="abrir-inspector__cuenta" id="inspector-cuenta">0</span>
+  </button>
+
+  <aside class="inspector" id="inspector" hidden aria-labelledby="inspector-titulo">
+    <div class="inspector__cabeza">
+      <h2 id="inspector-titulo">Por dentro</h2>
+      <button class="inspector__cerrar" id="cerrar-inspector" type="button" aria-label="Cerrar">×</button>
+    </div>
+    <p class="inspector__ayuda">Cada petición de la tienda, con el patrón de acceso que resuelve y de dónde salió el dato.</p>
+    <ul class="inspector__leyenda">
+      <li><span class="fuente fuente--cache">Redis</span> caché o estructura en memoria</li>
+      <li><span class="fuente fuente--dynamodb">DynamoDB</span> tabla única, fuente de verdad</li>
+      <li><span class="fuente fuente--elasticsearch">Elasticsearch</span> búsqueda de texto</li>
+    </ul>
+    <ol class="inspector__lista" id="inspector-lista" reversed></ol>
+  </aside>
+
+  <div class="avisos" id="avisos" aria-live="polite"></div>
+
+  <footer class="pie">
+    <p>Marea es la tienda de demostración del proyecto final de Bases de Datos No Relacionales, Universidad del Magdalena.
+      DynamoDB con diseño de tabla única, Redis y Elasticsearch sobre LocalStack.</p>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
