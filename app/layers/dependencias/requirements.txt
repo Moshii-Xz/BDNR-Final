@@ -14,3 +14,6 @@ botocore==1.43.126
 
 # Cliente Redis (no viene en el runtime de Lambda)
 redis==8.1.0
+
+# Cliente Elasticsearch (para la búsqueda libre de productos)
+elasticsearch==8.11.0
