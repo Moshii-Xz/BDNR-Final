@@ -10,6 +10,7 @@ Define la infraestructura serverless del proyecto final:
   - Lambda carrito  (GET /cart, PUT/DELETE /cart/{productId})
   - Lambda cupones  (GET /coupons/{codigo})
   - Lambda usuarios (perfil, direcciones, wishlist)
+  - Lambda ordenes  (checkout transaccional, historial, orden por número)
   - API Gateway     (RestApi) que enruta las peticiones
 """
 import os
@@ -319,6 +320,21 @@ class ProyectoFinalStack(Stack):
         )
         tabla.grant_read_data(lambda_usuarios)
 
+        # ── 4.5 LAMBDA ordenes (patrones #12-#15) ─────────────────────
+        # Checkout con TransactWriteItems (orden + líneas + vaciar carrito
+        # + descontar stock) y orden por número con Cache-Aside sobre GSI1.
+        lambda_ordenes: _lambda.Function = _lambda.Function(
+            self,
+            "OrdenesHandler",
+            runtime=RUNTIME,
+            handler="handler.main",
+            code=_codigo_lambda("lambdas/ordenes", con_comun=True),
+            layers=layers,
+            environment=env_comun,
+            timeout=cdk.Duration.seconds(15),
+        )
+        tabla.grant_read_write_data(lambda_ordenes)
+
         # ── 5. API GATEWAY ────────────────────────────────────────────
         # LambdaRestApi crea automáticamente una integración proxy
         # entre API Gateway y la Lambda raíz.
@@ -402,6 +418,15 @@ class ProyectoFinalStack(Stack):
         recurso_user_id.add_method("GET", integ_usuarios)                 # #9
         recurso_user_id.add_resource("addresses").add_method("GET", integ_usuarios)  # #10
         recurso_user_id.add_resource("wishlist").add_method("GET", integ_usuarios)   # #11
+
+        # ── 5.5 Rutas de órdenes → Lambda ordenes ─────────────────────
+        integ_ordenes = apigw.LambdaIntegration(lambda_ordenes)
+        recurso_orders: apigw.Resource = api.root.add_resource("orders")
+        recurso_orders.add_method("POST", integ_ordenes)                              # #12
+        recurso_orders.add_resource("{orderId}").add_method("GET", integ_ordenes)     # #15
+        recurso_user_orders: apigw.Resource = recurso_user_id.add_resource("orders")
+        recurso_user_orders.add_method("GET", integ_ordenes)                          # #14
+        recurso_user_orders.add_resource("ultima").add_method("GET", integ_ordenes)   # #13
 
         # ── 6. OUTPUTS ────────────────────────────────────────────────
         CfnOutput(self, "ApiUrl",
