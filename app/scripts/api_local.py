@@ -14,6 +14,7 @@ La URL es  <endpoint>/restapis/<api-id>/prod/_user_request_/<ruta>, sin DNS.
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -60,6 +61,9 @@ class Api:
         usuario: str | None = None,
     ) -> tuple[int, Any]:
         datos = json.dumps(body).encode() if body is not None else None
+        # Codifica espacios, tildes, etc. (ej. /search?q=audífonos inalámbricos)
+        # sin tocar los separadores de la ruta ni de la query
+        ruta = urllib.parse.quote(ruta, safe="/?=&")
         req = urllib.request.Request(self.base + ruta, data=datos, method=metodo)
         req.add_header("Content-Type", "application/json")
         if usuario:
